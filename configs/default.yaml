@@ -1,0 +1,122 @@
+# Default configuration for Multi-Modal WS Training
+# This file contains default hyperparameters and settings
+
+# General settings
+general:
+  seed: 42
+  device: "auto"  # auto, cpu, cuda, mps
+  dtype: "float32"
+  log_level: "INFO"
+
+# Topology settings
+topology:
+  # Watts-Strogatz parameters
+  watts_strogatz:
+    n_nodes: 100
+    k_neighbors: 4
+    beta: 0.3  # rewiring probability
+
+  # Erdos-Renyi parameters
+  erdos_renyi:
+    n_nodes: 100
+    p_edge: 0.1
+
+  # Barabasi-Albert parameters
+  barabasi_albert:
+    n_nodes: 100
+    m_edges: 2
+
+# Model architecture
+model:
+  # Encoder dimensions
+  visual_encoder:
+    input_dim: 784  # 28x28 for MNIST
+    hidden_dims: [256, 128]
+    output_dim: 64
+
+  text_encoder:
+    vocab_size: 10000
+    embed_dim: 128
+    hidden_dim: 256
+    output_dim: 64
+
+  audio_encoder:
+    input_dim: 128  # mel spectrogram bins
+    hidden_dims: [256, 128]
+    output_dim: 64
+
+  # Inter-module connector
+  ws_connector:
+    n_modules: 3
+    connections_per_module: 8
+    beta_init: 0.3
+    learnable_beta: true
+
+  # Fusion module
+  fusion:
+    input_dim: 192  # 64 * 3 modalities
+    hidden_dim: 128
+    output_dim: 64
+
+# Training settings
+training:
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  epochs: 100
+
+  # Learning rate schedule
+  lr_scheduler:
+    type: "cosine"  # step, cosine, exponential
+    warmup_epochs: 5
+
+  # Early stopping
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.001
+
+# Sparse training settings
+sparse:
+  # Initial sparsity
+  initial_sparsity: 0.5
+
+  # Target sparsity
+  target_sparsity: 0.9
+
+  # SET algorithm parameters
+  set:
+    prune_rate: 0.3
+    regrow_rate: 0.3
+    update_frequency: 100  # steps
+
+  # DEEP R algorithm parameters
+  deep_r:
+    temperature: 1.0
+    update_frequency: 100
+
+# Dynamic topology settings
+dynamic_topology:
+  enabled: true
+  rewire_frequency: 50  # steps
+  rewire_fraction: 0.1
+  method: "set"  # set, deep_r, adaptive
+
+# Data settings
+data:
+  dataset: "mnist"
+  data_dir: "./data"
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  num_workers: 4
+  pin_memory: true
+
+# Visualization settings
+visualization:
+  plot_frequency: 10  # epochs
+  save_figures: true
+  figure_dir: "./figures"
+  figure_format: "png"
+  dpi: 150
+  style: "seaborn"
