@@ -12,6 +12,7 @@ from .datasets import (
     get_fashion_mnist,
     get_cifar10,
     SyntheticMultiModal,
+    GraphDataset,
 )
 from .transforms import (
     ToTensor,
@@ -29,6 +30,7 @@ __all__ = [
     "get_fashion_mnist",
     "get_cifar10",
     "SyntheticMultiModal",
+    "GraphDataset",
     "ToTensor",
     "Normalize",
     "RandomNoise",

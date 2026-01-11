@@ -14,6 +14,7 @@ from .layers import (
     WSLinear,
     DenseBlock,
     SparseBlock,
+    MixtureOfExperts,
 )
 from .encoders import (
     VisualEncoder,
@@ -43,6 +44,7 @@ __all__ = [
     "WSLinear",
     "DenseBlock",
     "SparseBlock",
+    "MixtureOfExperts",
     # Encoders
     "VisualEncoder",
     "TextEncoder",

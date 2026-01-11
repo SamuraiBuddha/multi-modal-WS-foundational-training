@@ -1,161 +1,230 @@
 #!/usr/bin/env python3
 """
-Environment setup script for Multi-Modal WS Foundational Training.
+Environment setup and verification script.
+
+Checks that all required dependencies are installed and working correctly.
+Run this before starting the notebooks to ensure everything is configured.
 
 Usage:
     python scripts/setup_environment.py
 """
 
-import subprocess
 import sys
-from pathlib import Path
+import subprocess
+from typing import List, Tuple, Optional
 
 
-def check_python_version():
-    """Check Python version meets requirements."""
-    print("[INFO] Checking Python version...")
+def check_python_version() -> Tuple[bool, str]:
+    """Check Python version is 3.10+."""
     version = sys.version_info
-    if version < (3, 11):
-        print(f"[FAIL] Python 3.11+ required, found {version.major}.{version.minor}")
-        return False
-    print(f"[OK] Python {version.major}.{version.minor}.{version.micro}")
-    return True
+    if version.major >= 3 and version.minor >= 10:
+        return True, f"Python {version.major}.{version.minor}.{version.micro}"
+    return False, f"Python {version.major}.{version.minor} (need 3.10+)"
 
 
-def install_requirements():
-    """Install required packages."""
-    print("\n[INFO] Installing requirements...")
-
-    requirements_path = Path(__file__).parent.parent / "requirements.txt"
-
-    if not requirements_path.exists():
-        print(f"[FAIL] requirements.txt not found at {requirements_path}")
-        return False
-
+def check_import(module: str, package: Optional[str] = None) -> Tuple[bool, str]:
+    """Check if a module can be imported."""
     try:
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install", "-r", str(requirements_path)
-        ])
-        print("[OK] Requirements installed")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"[FAIL] Failed to install requirements: {e}")
-        return False
+        __import__(module)
+        return True, package or module
+    except ImportError as e:
+        return False, f"{package or module}: {str(e)}"
 
 
-def check_pytorch():
-    """Check PyTorch installation and GPU availability."""
-    print("\n[INFO] Checking PyTorch...")
-
+def check_torch_cuda() -> Tuple[bool, str]:
+    """Check PyTorch and CUDA availability."""
     try:
         import torch
-        print(f"[OK] PyTorch {torch.__version__}")
-
         if torch.cuda.is_available():
-            print(f"[OK] CUDA available: {torch.cuda.get_device_name(0)}")
+            device_name = torch.cuda.get_device_name(0)
+            return True, f"PyTorch {torch.__version__} with CUDA ({device_name})"
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            print("[OK] MPS (Apple Silicon) available")
+            return True, f"PyTorch {torch.__version__} with MPS (Apple Silicon)"
         else:
-            print("[INFO] No GPU detected, will use CPU")
-
-        return True
+            return True, f"PyTorch {torch.__version__} (CPU only)"
     except ImportError:
-        print("[FAIL] PyTorch not found")
-        return False
+        return False, "PyTorch not installed"
 
 
-def check_jupyter():
+def check_jupyter() -> Tuple[bool, str]:
     """Check JupyterLab installation."""
-    print("\n[INFO] Checking JupyterLab...")
-
     try:
-        import jupyterlab
-        print(f"[OK] JupyterLab {jupyterlab.__version__}")
-        return True
-    except ImportError:
-        print("[WARN] JupyterLab not found")
-        return False
+        result = subprocess.run(
+            [sys.executable, "-m", "jupyter", "--version"],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            return True, "JupyterLab available"
+        return False, "JupyterLab not configured"
+    except Exception as e:
+        return False, f"JupyterLab check failed: {e}"
 
 
-def check_custom_modules():
-    """Check custom modules can be imported."""
-    print("\n[INFO] Checking custom modules...")
+def check_node_npm() -> Tuple[bool, str]:
+    """Check Node.js and npm for web components."""
+    try:
+        node_result = subprocess.run(
+            ["node", "--version"],
+            capture_output=True, text=True, timeout=10
+        )
+        npm_result = subprocess.run(
+            ["npm", "--version"],
+            capture_output=True, text=True, timeout=10
+        )
+        if node_result.returncode == 0 and npm_result.returncode == 0:
+            node_ver = node_result.stdout.strip()
+            npm_ver = npm_result.stdout.strip()
+            return True, f"Node.js {node_ver}, npm {npm_ver}"
+        return False, "Node.js or npm not found"
+    except FileNotFoundError:
+        return False, "Node.js not installed (optional for web components)"
+    except Exception as e:
+        return False, f"Node.js check failed: {e}"
 
-    project_root = Path(__file__).parent.parent
-    sys.path.insert(0, str(project_root))
 
-    modules = [
-        ("src.topology", "Topology module"),
-        ("src.models", "Models module"),
-        ("src.training", "Training module"),
-        ("src.data", "Data module"),
-        ("src.visualization", "Visualization module"),
+def run_checks() -> List[Tuple[str, bool, str]]:
+    """Run all environment checks."""
+    checks = []
+
+    # Python version
+    ok, msg = check_python_version()
+    checks.append(("Python Version", ok, msg))
+
+    # Core ML libraries
+    core_libs = [
+        ("torch", "PyTorch"),
+        ("torchvision", "TorchVision"),
     ]
+    for module, name in core_libs:
+        ok, msg = check_import(module, name)
+        checks.append((name, ok, msg))
+
+    # Optional audio library
+    ok, msg = check_import("torchaudio", "TorchAudio")
+    checks.append(("TorchAudio (optional)", ok, msg))
+
+    # PyTorch CUDA/GPU
+    ok, msg = check_torch_cuda()
+    checks.append(("GPU Support", ok, msg))
+
+    # Graph libraries
+    graph_libs = [
+        ("networkx", "NetworkX"),
+        ("scipy", "SciPy"),
+    ]
+    for module, name in graph_libs:
+        ok, msg = check_import(module, name)
+        checks.append((name, ok, msg))
+
+    # Visualization
+    viz_libs = [
+        ("matplotlib", "Matplotlib"),
+        ("plotly", "Plotly"),
+        ("ipywidgets", "ipywidgets"),
+    ]
+    for module, name in viz_libs:
+        ok, msg = check_import(module, name)
+        checks.append((name, ok, msg))
+
+    # Utilities
+    util_libs = [
+        ("numpy", "NumPy"),
+        ("pandas", "Pandas"),
+        ("tqdm", "tqdm"),
+        ("sklearn", "scikit-learn"),
+    ]
+    for module, name in util_libs:
+        ok, msg = check_import(module, name)
+        checks.append((name, ok, msg))
+
+    # Jupyter
+    ok, msg = check_jupyter()
+    checks.append(("JupyterLab", ok, msg))
+
+    # Node.js (optional)
+    ok, msg = check_node_npm()
+    checks.append(("Node.js (optional)", ok, msg))
+
+    # Check our own package
+    ok, msg = check_import("src", "Local src package")
+    checks.append(("Local Package", ok, msg))
+
+    return checks
+
+
+def print_results(checks: List[Tuple[str, bool, str]]) -> bool:
+    """Print check results and return overall status."""
+    print("\n" + "=" * 60)
+    print("  Multi-Modal WS Training - Environment Check")
+    print("=" * 60 + "\n")
 
     all_ok = True
-    for module_name, description in modules:
-        try:
-            __import__(module_name)
-            print(f"[OK] {description}")
-        except ImportError as e:
-            print(f"[FAIL] {description}: {e}")
-            all_ok = False
+    required_failed = []
+    optional_failed = []
+
+    for name, ok, msg in checks:
+        status = "[OK]" if ok else "[X]"
+        print(f"  {status:6} {name:20} {msg}")
+
+        if not ok:
+            if "optional" in name.lower():
+                optional_failed.append(name)
+            else:
+                required_failed.append(name)
+                all_ok = False
+
+    print("\n" + "-" * 60)
+
+    if all_ok:
+        print("\n  [OK] All required dependencies are installed!")
+        print("  You're ready to start the notebooks.\n")
+        print("  Next steps:")
+        print("    1. cd notebooks/00_setup")
+        print("    2. jupyter lab")
+        print("    3. Open 00_welcome.ipynb\n")
+    else:
+        print(f"\n  [!] Missing {len(required_failed)} required dependencies:")
+        for name in required_failed:
+            print(f"      - {name}")
+        print("\n  Install missing packages with:")
+        print("    pip install -r requirements.txt\n")
+
+    if optional_failed:
+        print(f"  [INFO] {len(optional_failed)} optional dependencies not found.")
+        print("         Web components may have limited functionality.\n")
 
     return all_ok
 
 
-def create_data_directory():
-    """Create data directory if it doesn't exist."""
-    print("\n[INFO] Creating data directory...")
+def create_data_dirs():
+    """Create necessary data directories."""
+    import os
+    from pathlib import Path
 
-    data_dir = Path(__file__).parent.parent / "data"
-    data_dir.mkdir(exist_ok=True)
-    print(f"[OK] Data directory: {data_dir}")
+    base_dir = Path(__file__).parent.parent
+    dirs = [
+        base_dir / "data",
+        base_dir / "data" / "raw",
+        base_dir / "data" / "processed",
+        base_dir / "checkpoints",
+        base_dir / "logs",
+    ]
+
+    for d in dirs:
+        d.mkdir(parents=True, exist_ok=True)
+
+    print("  [OK] Created data directories")
 
 
 def main():
-    """Run environment setup."""
-    print("=" * 60)
-    print("Multi-Modal WS Foundational Training - Environment Setup")
-    print("=" * 60)
+    """Main entry point."""
+    checks = run_checks()
+    all_ok = print_results(checks)
 
-    success = True
+    if all_ok:
+        create_data_dirs()
 
-    # Check Python version
-    if not check_python_version():
-        success = False
-
-    # Install requirements
-    if not install_requirements():
-        success = False
-
-    # Check PyTorch
-    if not check_pytorch():
-        success = False
-
-    # Check JupyterLab
-    check_jupyter()  # Warning only, not critical
-
-    # Check custom modules
-    if not check_custom_modules():
-        success = False
-
-    # Create data directory
-    create_data_directory()
-
-    # Summary
-    print("\n" + "=" * 60)
-    if success:
-        print("[OK] Environment setup complete!")
-        print("\nNext steps:")
-        print("  1. Run: jupyter lab")
-        print("  2. Open: notebooks/00_setup/00_welcome.ipynb")
-    else:
-        print("[FAIL] Environment setup encountered errors")
-        print("Please fix the issues above and run this script again.")
-    print("=" * 60)
-
-    return 0 if success else 1
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":

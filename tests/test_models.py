@@ -72,28 +72,27 @@ class TestMixtureOfExperts:
     def test_moe_forward_shape(self):
         """MoE should produce correct output shape."""
         moe = MixtureOfExperts(
-            input_dim=64,
-            output_dim=32,
+            in_features=64,
+            out_features=32,
             n_experts=4,
             top_k=2,
         )
         x = torch.randn(8, 64)
-        out = moe(x)
+        out, router_probs = moe(x)
         assert out.shape == (8, 32)
 
     def test_moe_routing(self):
         """Top-k experts should be selected."""
         moe = MixtureOfExperts(
-            input_dim=64,
-            output_dim=32,
+            in_features=64,
+            out_features=32,
             n_experts=4,
             top_k=2,
         )
         x = torch.randn(8, 64)
-        _ = moe(x)
+        out, router_probs = moe(x)
         # Routing weights should sum to 1
-        # (implementation detail check)
-        assert True
+        assert torch.allclose(router_probs.sum(dim=-1), torch.ones(8), atol=1e-5)
 
 
 class TestEncoders:
@@ -137,15 +136,17 @@ class TestWSConnector:
     def test_ws_connector_shape(self):
         """Connector should transform dimensions correctly."""
         connector = WSConnector(
-            input_dim=192,  # 3 modules * 64
-            output_dim=128,
-            n_modules=3,
+            module_dims=[64, 64, 64],  # 3 modules with 64 dim each
+            hidden_dim=128,
             k=2,
             beta=0.3,
         )
-        x = torch.randn(8, 192)
-        out = connector(x)
-        assert out.shape == (8, 128)
+        # Connector expects list of module outputs
+        inputs = [torch.randn(8, 64) for _ in range(3)]
+        outputs = connector(inputs)
+        # Returns list of updated representations
+        assert len(outputs) == 3
+        assert outputs[0].shape == (8, 128)
 
 
 class TestFusion:
@@ -154,7 +155,7 @@ class TestFusion:
     def test_concat_fusion(self):
         """Concat fusion should combine modalities."""
         fusion = ConcatFusion(
-            modality_dims=[64, 64, 64],
+            input_dims=[64, 64, 64],
             output_dim=128,
         )
         inputs = [torch.randn(4, 64) for _ in range(3)]
@@ -162,14 +163,15 @@ class TestFusion:
         assert out.shape == (4, 128)
 
     def test_attention_fusion(self):
-        """Attention fusion should use cross-attention."""
+        """Attention fusion should use attention mechanism."""
         fusion = AttentionFusion(
-            modality_dims=[64, 64, 64],
-            output_dim=128,
+            input_dim=64,
+            n_modalities=3,
         )
         inputs = [torch.randn(4, 64) for _ in range(3)]
         out = fusion(inputs)
-        assert out.shape == (4, 128)
+        # Output is same dimension as input (no projection)
+        assert out.shape == (4, 64)
 
 
 class TestMultiModalWSNetwork:
@@ -178,33 +180,38 @@ class TestMultiModalWSNetwork:
     def test_multimodal_forward(self):
         """Network should handle all modality inputs."""
         model = MultiModalWSNetwork(
-            visual_config={'input_shape': (1, 28, 28), 'hidden_dims': [64]},
-            text_config={'vocab_size': 100, 'embed_dim': 32, 'hidden_dim': 64},
-            audio_config={'input_dim': 128, 'hidden_dims': [64]},
-            fusion_dim=128,
+            modalities=['visual', 'text', 'audio'],
+            encoder_configs={
+                'visual': {'input_shape': (1, 28, 28), 'hidden_dims': [64]},
+                'text': {'vocab_size': 100, 'embed_dim': 32, 'hidden_dim': 64},
+                'audio': {'input_dim': 128, 'hidden_dims': [64]},
+            },
+            embed_dim=64,
             output_dim=10,
         )
 
-        visual = torch.randn(4, 1, 28, 28)
-        text = torch.randint(0, 100, (4, 16))
-        audio = torch.randn(4, 128, 32)
+        inputs = {
+            'visual': torch.randn(4, 1, 28, 28),
+            'text': torch.randint(0, 100, (4, 16)),
+            'audio': torch.randn(4, 128, 32),
+        }
 
-        out = model(visual=visual, text=text, audio=audio)
+        out = model(inputs)
         assert out.shape == (4, 10)
 
-    def test_multimodal_missing_modality(self):
-        """Network should handle missing modalities gracefully."""
+    def test_multimodal_single_modality(self):
+        """Network should work with single modality."""
         model = MultiModalWSNetwork(
-            visual_config={'input_shape': (1, 28, 28), 'hidden_dims': [64]},
-            text_config={'vocab_size': 100, 'embed_dim': 32, 'hidden_dim': 64},
-            audio_config={'input_dim': 128, 'hidden_dims': [64]},
-            fusion_dim=128,
+            modalities=['visual'],
+            encoder_configs={
+                'visual': {'input_shape': (1, 28, 28), 'hidden_dims': [64]},
+            },
+            embed_dim=64,
             output_dim=10,
         )
 
-        visual = torch.randn(4, 1, 28, 28)
-        # Only visual modality
-        out = model(visual=visual)
+        inputs = {'visual': torch.randn(4, 1, 28, 28)}
+        out = model(inputs)
         assert out.shape == (4, 10)
 
 

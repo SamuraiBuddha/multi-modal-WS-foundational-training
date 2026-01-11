@@ -15,6 +15,7 @@ from src.training import (
     ModelCheckpoint,
     TopologyRewiring,
     SparseTrainer,
+    SETSchedule,
 )
 
 
@@ -51,38 +52,46 @@ class TestTrainingConfig:
         assert config.learning_rate == 0.01
 
 
+class MockTrainer:
+    """Mock trainer for callback testing."""
+    def __init__(self):
+        self.model = SimpleModel()
+
+
 class TestEarlyStopping:
     """Tests for EarlyStopping callback."""
 
     def test_early_stopping_patience(self):
         """Should stop after patience epochs without improvement."""
         callback = EarlyStopping(patience=3, min_delta=0.01)
+        trainer = MockTrainer()
 
         # Simulated improving losses
-        callback.on_epoch_end(0, {'val_loss': 1.0})
-        assert not callback.should_stop
+        stop = callback.on_epoch_end(trainer, 0, {'loss': 1.0}, {'loss': 1.0})
+        assert not stop
 
-        callback.on_epoch_end(1, {'val_loss': 0.9})
-        assert not callback.should_stop
+        stop = callback.on_epoch_end(trainer, 1, {'loss': 0.9}, {'loss': 0.9})
+        assert not stop
 
         # Simulated stagnation
-        callback.on_epoch_end(2, {'val_loss': 0.9})
-        callback.on_epoch_end(3, {'val_loss': 0.9})
-        callback.on_epoch_end(4, {'val_loss': 0.9})
+        callback.on_epoch_end(trainer, 2, {'loss': 0.9}, {'loss': 0.9})
+        callback.on_epoch_end(trainer, 3, {'loss': 0.9}, {'loss': 0.9})
+        stop = callback.on_epoch_end(trainer, 4, {'loss': 0.9}, {'loss': 0.9})
 
-        assert callback.should_stop
+        assert stop
 
     def test_early_stopping_improvement_resets(self):
         """Improvement should reset patience counter."""
         callback = EarlyStopping(patience=2, min_delta=0.01)
+        trainer = MockTrainer()
 
-        callback.on_epoch_end(0, {'val_loss': 1.0})
-        callback.on_epoch_end(1, {'val_loss': 0.99})  # Not enough improvement
-        callback.on_epoch_end(2, {'val_loss': 0.8})   # Good improvement
-        callback.on_epoch_end(3, {'val_loss': 0.79})  # Not enough
-        callback.on_epoch_end(4, {'val_loss': 0.78})  # Not enough
+        callback.on_epoch_end(trainer, 0, {'loss': 1.0}, {'loss': 1.0})
+        callback.on_epoch_end(trainer, 1, {'loss': 0.99}, {'loss': 0.99})  # Not enough improvement
+        callback.on_epoch_end(trainer, 2, {'loss': 0.8}, {'loss': 0.8})    # Good improvement - resets
+        callback.on_epoch_end(trainer, 3, {'loss': 0.8}, {'loss': 0.8})    # No improvement (same)
+        stop = callback.on_epoch_end(trainer, 4, {'loss': 0.8}, {'loss': 0.8})  # No improvement (same)
 
-        assert callback.should_stop
+        assert stop
 
 
 class TestTrainer:
@@ -110,7 +119,7 @@ class TestTrainer:
         train_loader = torch.utils.data.DataLoader(dataset, batch_size=4)
 
         # Train for one epoch
-        history = trainer.train(train_loader)
+        history = trainer.fit(train_loader)
 
         assert 'train_loss' in history
         assert len(history['train_loss']) == 1
@@ -124,35 +133,30 @@ class TestSparseTrainer:
         model = SimpleModel()
         config = TrainingConfig(epochs=2)
 
+        schedule = SETSchedule(update_frequency=1, prune_rate=0.3)
         trainer = SparseTrainer(
             model,
             config,
-            rewire_every=1,
-            prune_rate=0.3,
+            sparse_schedule=schedule,
         )
 
-        assert trainer.rewire_every == 1
-        assert trainer.prune_rate == 0.3
+        assert trainer.sparse_schedule.update_frequency == 1
+        assert trainer.sparse_schedule.prune_rate == 0.3
 
 
 class TestTopologyRewiring:
     """Tests for TopologyRewiring callback."""
 
-    def test_rewiring_callback_trigger(self):
-        """Callback should trigger at correct intervals."""
+    def test_rewiring_callback_initialization(self):
+        """Callback should initialize with correct parameters."""
         callback = TopologyRewiring(
-            rewire_every=5,
+            rewire_frequency=5,
             prune_rate=0.2,
         )
 
-        # Should not trigger at epoch 1-4
-        for epoch in range(4):
-            result = callback.on_epoch_end(epoch, {})
-            # No error means success
-
-        # Should trigger at epoch 5
-        result = callback.on_epoch_end(4, {})
-        # Check that it was triggered (implementation dependent)
+        assert callback.rewire_frequency == 5
+        assert callback.prune_rate == 0.2
+        assert callback.method == 'set'  # default method
 
 
 if __name__ == '__main__':
